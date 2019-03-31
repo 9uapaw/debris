@@ -6,6 +6,15 @@ Declarative HTML scraper
 
 Debris is created for automatic content generation in mind. It provides an abstraction over CSS and HTML element selection in a declarative way, that helps structuring your code for scraping scripts.
 
+## Usage
+
+Add this to your `Cargo.toml`
+
+```toml
+[dependencies]
+debris = { git = "https://github.com/9uapaw/debris" }
+```
+
 ## Getting started
 
 ### Basic example
