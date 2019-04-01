@@ -10,10 +10,15 @@ use std::cell::Ref;
 use std::collections::HashMap;
 
 #[derive(Clone)]
+/// Building blocks of a path.
 pub enum PathStep {
+    /// Lower the hierarchy level by 1.
     Descend(Destination),
+    /// Every path should be started with this.
     Start(Destination),
+    /// Populate fields on current level.
     Populate(HashMap<String, FieldIdentity>),
+    /// Find values on current level without field names.
     Find(FieldIdentity),
 }
 
@@ -135,6 +140,7 @@ impl<'a, 'b> PathFinder<'a, 'b> {
     }
 }
 
+/// A convenient helper to build up a path.
 pub struct PathBuilder {
     path: Vec<PathStep>,
 }
@@ -179,10 +185,12 @@ impl<'a> PathBuilder {
         return self;
     }
 
-    pub fn find_all(&mut self,
-                    selector: &'a str,
-                    delimiter: &'a str,
-                    location: DestinationLocation) -> &mut Self {
+    pub fn find_all(
+        &mut self,
+        selector: &'a str,
+        delimiter: &'a str,
+        location: DestinationLocation,
+    ) -> &mut Self {
         self.path.push(PathStep::Find(FieldIdentity {
             destination: Destination(
                 String::from(selector),
@@ -193,7 +201,127 @@ impl<'a> PathBuilder {
         return self;
     }
 
+    /// Returns the constructed path
     pub fn build(&self) -> Vec<PathStep> {
         self.path.to_owned()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    #[test]
+    fn test_find_single_element_without_descent_by_path() {
+        let html_string = r#"<div><a>NOT THIS</a> <p>find me</p></div>"#;
+        let html = Html::parse_fragment(&html_string);
+        let html = RefCell::new(&html);
+        let path = PathBuilder::new()
+            .start(Destination::new("div", ElementSelection::first()))
+            .find_one("p", 0, DestinationLocation::Text)
+            .build();
+        let mut path_finder = PathFinder::new(&path, html.borrow());
+
+        path_finder.search_path();
+
+        assert_eq!(path_finder.values.get(0).unwrap(), "find me");
+    }
+
+    #[test]
+    fn test_find_single_element_with_descent_by_path() {
+        let html_string = r#"<div><a><i>NOT THIS</i> <p>find me</p></a> <p>find me</p></div>"#;
+        let html = Html::parse_fragment(&html_string);
+        let html = RefCell::new(&html);
+        let path = PathBuilder::new()
+            .start(Destination::new("div", ElementSelection::first()))
+            .descend("a", 0)
+            .find_one("p", 0, DestinationLocation::Text)
+            .build();
+        let mut path_finder = PathFinder::new(&path, html.borrow());
+
+        path_finder.search_path();
+
+        assert_eq!(path_finder.values.get(0).unwrap(), "find me");
+    }
+
+    #[test]
+    fn test_find_all_element_with_descent_by_path() {
+        let html_string =
+            r#"<div><a><i>NOT THIS</i> <p>find me</p> <p>as well</p></a> <p>find me</p></div>"#;
+        let html = Html::parse_fragment(&html_string);
+        let html = RefCell::new(&html);
+        let path = PathBuilder::new()
+            .start(Destination::new("div", ElementSelection::first()))
+            .descend("a", 0)
+            .find_all("p", "", DestinationLocation::Text)
+            .build();
+        let mut path_finder = PathFinder::new(&path, html.borrow());
+
+        path_finder.search_path();
+
+        assert_eq!(path_finder.values.get(0).unwrap(), "find me");
+        assert_eq!(path_finder.values.get(1).unwrap(), "as well");
+    }
+
+    #[test]
+    fn test_populate_element_by_path() {
+        let html_string = r#"<div class="first"><span itemprop="first">find me</span>
+        <span itemprop="second">as well</span></div>"#;
+        let html = Html::parse_fragment(&html_string);
+        let html = RefCell::new(&html);
+        let mut population = HashMap::new();
+        population.insert(
+            String::from("first"),
+            FieldIdentity {
+                destination: Destination::new(
+                    r#"span[itemprop="first"]"#,
+                    ElementSelection::first(),
+                ),
+                destination_location: DestinationLocation::Text,
+            },
+        );
+        population.insert(
+            String::from("second"),
+            FieldIdentity {
+                destination: Destination::new(
+                    r#"span[itemprop="second"]"#,
+                    ElementSelection::first(),
+                ),
+                destination_location: DestinationLocation::Text,
+            },
+        );
+        let path = PathBuilder::new()
+            .start(Destination::new(
+                r#"div[class="first"]"#,
+                ElementSelection::first(),
+            ))
+            .populate(population)
+            .build();
+        let mut path_finder = PathFinder::new(&path, html.borrow());
+
+        path_finder.search_path();
+
+        assert_eq!(path_finder.map.get("first").unwrap(), "find me");
+        assert_eq!(path_finder.map.get("second").unwrap(), "as well");
+    }
+
+    #[test]
+    fn test_find_all_with_different_parents_by_path() {
+        let html_string = r#"<div><a><i>find me</i></a><a><i>as well</i></a></div>"#;
+
+        let html = Html::parse_fragment(&html_string);
+        let html = RefCell::new(&html);
+        let path = PathBuilder::new()
+            .start(Destination::new(r#"div"#, ElementSelection::first()))
+            .find_all("i", "", DestinationLocation::Text)
+            .build();
+        let mut path_finder = PathFinder::new(&path, html.borrow());
+
+        path_finder.search_path();
+
+        assert_eq!(path_finder.values.get(0).unwrap(), "find me");
+        assert_eq!(path_finder.values.get(1).unwrap(), "as well");
+    }
+
 }

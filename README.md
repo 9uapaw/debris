@@ -2,6 +2,8 @@
 
 Declarative HTML scraper
 
+[![Build Status](https://travis-ci.com/9uapaw/debris.svg?branch=master)](https://travis-ci.com/9uapaw/debris)
+
 ## Why use it?
 
 Debris is created for automatic content generation in mind. It provides an abstraction over CSS and HTML element selection in a declarative way, that helps structuring your code for scraping scripts.
@@ -19,7 +21,7 @@ debris = { git = "https://github.com/9uapaw/debris" }
 
 ### Basic example
 
-A simple example of finding an unambigous element
+A simple example of finding an element by using a path and a field finder.
 
 ```rust
 let html = r#"<div class=found>
@@ -53,3 +55,5 @@ let html = r#"<div class=found>
         print!("{} ", v);
     }
 ```
+
+
