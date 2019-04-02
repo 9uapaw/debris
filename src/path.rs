@@ -58,11 +58,10 @@ impl<'a, 'b> PathFinder<'a, 'b> {
             _ => panic!("Can not descend on all element"),
         };
         let parsed = Selector::parse(&start.0).unwrap();
-        let mut selected = self
-            .html
-            .select(&parsed)
-            .nth(n as usize)
-            .expect("Path not found!");
+        let mut selected = match self.html.select(&parsed).nth(n as usize) {
+            Some(s) => s,
+            None => return,
+        };
 
         self.resolve_path(&selected, 1);
     }
@@ -80,24 +79,32 @@ impl<'a, 'b> PathFinder<'a, 'b> {
                         ElementSelection::Single(n) => n,
                         _ => panic!("Can not descend on all element"),
                     };
-                    let child_element = element
-                        .select(&selection)
-                        .nth(n as usize)
-                        .expect("Element not found");
+
+                    let child_element = match element.select(&selection).nth(n as usize) {
+                        Some(e) => e,
+                        None => return,
+                    };
+
                     self.resolve_path(&child_element, level + 1);
                 }
                 PathStep::Populate(field_map) => {
                     for (field_name, identifier) in field_map {
                         let selector = Selector::parse(&identifier.destination.0).unwrap();
                         let mut selection = element.select(&selector);
+
                         match &identifier.destination.1 {
                             ElementSelection::Single(n) => {
-                                let selected_element =
-                                    selection.nth(*n as usize).expect("Element not found");
-                                self.map.insert(
-                                    field_name.clone(),
-                                    extract(&selected_element, &identifier.destination_location),
-                                );
+                                match selection.nth(*n as usize) {
+                                    Some(e) => {
+                                        self.map.insert(
+                                            field_name.clone(),
+                                            extract(&e, &identifier.destination_location),
+                                        );
+                                    }
+                                    None => {
+                                        self.map.insert(field_name.clone(), String::from(""));
+                                    }
+                                };
                             }
                             ElementSelection::All(delimiter) => {
                                 let mut value = String::new();
@@ -113,11 +120,11 @@ impl<'a, 'b> PathFinder<'a, 'b> {
                     }
                 }
                 PathStep::Find(field_identifier) => self.find(element, field_identifier),
-
                 _ => panic!("Invalid path!"),
             },
             None => (),
         };
+        self.resolve_path(element, level + 1);
     }
 
     fn find(&mut self, element: &ElementRef, identifier: &FieldIdentity) {
@@ -322,6 +329,61 @@ mod tests {
 
         assert_eq!(path_finder.values.get(0).unwrap(), "find me");
         assert_eq!(path_finder.values.get(1).unwrap(), "as well");
+    }
+
+    #[test]
+    fn test_populate_multiple_time_by_path() {
+        let html_string = r#"<div class="first"><span itemprop="first">find me</span>
+        <span itemprop="second">as well</span></div>"#;
+        let html = Html::parse_fragment(&html_string);
+        let html = RefCell::new(&html);
+        let mut population = HashMap::new();
+        let mut second_population = HashMap::new();
+        population.insert(
+            String::from("first"),
+            FieldIdentity {
+                destination: Destination::new(
+                    r#"span[itemprop="first"]"#,
+                    ElementSelection::first(),
+                ),
+                destination_location: DestinationLocation::Text,
+            },
+        );
+        population.insert(
+            String::from("second"),
+            FieldIdentity {
+                destination: Destination::new(
+                    r#"span[itemprop="second"]"#,
+                    ElementSelection::first(),
+                ),
+                destination_location: DestinationLocation::Text,
+            },
+        );
+        second_population.insert(
+            String::from("third"),
+            FieldIdentity {
+                destination: Destination::new(
+                    r#"span[itemprop="first"]"#,
+                    ElementSelection::first(),
+                ),
+                destination_location: DestinationLocation::Text,
+            },
+        );
+        let path = PathBuilder::new()
+            .start(Destination::new(
+                r#"div[class="first"]"#,
+                ElementSelection::first(),
+            ))
+            .populate(population)
+            .populate(second_population)
+            .build();
+        let mut path_finder = PathFinder::new(&path, html.borrow());
+
+        path_finder.search_path();
+
+        assert_eq!(path_finder.map.get("first").unwrap(), "find me");
+        assert_eq!(path_finder.map.get("second").unwrap(), "as well");
+        assert_eq!(path_finder.map.get("third").unwrap(), "find me");
     }
 
 }

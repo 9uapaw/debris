@@ -37,7 +37,7 @@ pub struct SinglePopulator<'a> {
     /// A map, that contains populated field_names
     pub map: HashMap<String, String>,
     /// Values, that are populated without specifying the field_name (eg. extracting links etc..)
-    pub values: Vec<String>
+    pub values: Vec<String>,
 }
 
 impl<'a> SinglePopulator<'a> {
@@ -50,7 +50,7 @@ impl<'a> SinglePopulator<'a> {
             html,
             search_detail: search,
             map,
-            values
+            values,
         }
     }
 
@@ -90,7 +90,7 @@ pub struct MultiplePopulator<'a> {
     links_path: Path,
     /// A simple converter function that takes the link as an argument. Use it when the HTML structure
     /// only contains a relative path instead of an absolute url.
-    link_callback: Option<&'a Fn(String) -> String>,
+    link_callback: Option<&'a Fn(String) -> Option<String>>,
     search_detail: SearchDetail<'static>,
 }
 
@@ -98,7 +98,7 @@ impl<'a> MultiplePopulator<'a> {
     pub fn new(
         url: &str,
         links_path: Path,
-        link_converter: Option<&'a Fn(String) -> String>,
+        link_converter: Option<&'a Fn(String) -> Option<String>>,
         search: SearchDetail<'static>,
     ) -> MultiplePopulator<'a> {
         let mut html_string = reqwest::get(url).expect("Can't connect to url!");
@@ -123,8 +123,12 @@ impl<'a> MultiplePopulator<'a> {
         path_finder.search_path();
 
         for link in path_finder.values {
+
             let link = match self.link_callback {
-                Some(callback) => (callback)(link.clone()),
+                Some(callback) => match (callback)(link.clone()) {
+                    Some(link) => link,
+                    None => continue,
+                },
                 None => link,
             };
 
@@ -148,8 +152,12 @@ impl<'a> MultiplePopulator<'a> {
 
         for link in path_finder.values {
             let results = self.paralell_populated_links.clone();
-            let link = match &self.link_callback {
-                Some(callback) => (callback)(link.clone()),
+
+            let link = match self.link_callback {
+                Some(callback) => match (callback)(link.clone()) {
+                    Some(link) => link,
+                    None => continue,
+                },
                 None => link,
             };
             let search = self.search_detail.clone();
