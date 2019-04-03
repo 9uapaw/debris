@@ -176,6 +176,13 @@ impl<'a> PathBuilder {
         return self;
     }
 
+    pub fn populate_one(&mut self, field_name: &'a str, selector: &'a str, selection: ElementSelection, location: DestinationLocation) -> &mut Self {
+        let mut population = HashMap::new();
+        population.insert(String::from(field_name), FieldIdentity{destination: Destination::new(selector, selection), destination_location: location});
+        self.path.push(PathStep::Populate(population));
+        return self;
+    }
+
     pub fn find_one(
         &mut self,
         selector: &'a str,
@@ -384,6 +391,27 @@ mod tests {
         assert_eq!(path_finder.map.get("first").unwrap(), "find me");
         assert_eq!(path_finder.map.get("second").unwrap(), "as well");
         assert_eq!(path_finder.map.get("third").unwrap(), "find me");
+    }
+
+    #[test]
+    fn test_populate_one_field_by_path() {
+        let html_string = r#"<div class="first"><span itemprop="first">find me</span>
+        <span itemprop="second">as well</span></div>"#;
+        let html = Html::parse_fragment(&html_string);
+        let html = RefCell::new(&html);
+
+        let path = PathBuilder::new()
+            .start(Destination::new(
+                r#"div[class="first"]"#,
+                ElementSelection::first(),
+            ))
+            .populate_one("first", r#"span[itemprop="first"]"#, ElementSelection::first(), DestinationLocation::Text)
+            .build();
+        let mut path_finder = PathFinder::new(&path, html.borrow());
+
+        path_finder.search_path();
+
+        assert_eq!(path_finder.map.get("first").unwrap(), "find me");
     }
 
 }
