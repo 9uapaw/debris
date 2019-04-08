@@ -1,4 +1,7 @@
+use crate::field::concatenate_all;
 use crate::field::extract;
+use crate::field::find_all;
+use crate::field::find_single;
 use crate::field::Destination;
 use crate::field::DestinationLocation;
 use crate::field::ElementSelection;
@@ -87,63 +90,41 @@ impl<'a, 'b> PathFinder<'a, 'b> {
 
                     self.resolve_path(&child_element, level + 1);
                 }
+
                 PathStep::Populate(field_map) => {
                     for (field_name, identifier) in field_map {
-                        let selector = Selector::parse(&identifier.destination.0).unwrap();
-                        let mut selection = element.select(&selector);
-
                         match &identifier.destination.1 {
                             ElementSelection::Single(n) => {
-                                match selection.nth(*n as usize) {
-                                    Some(e) => {
-                                        self.map.insert(
-                                            field_name.clone(),
-                                            extract(&e, &identifier.destination_location),
-                                        );
-                                    }
-                                    None => {
-                                        self.map.insert(field_name.clone(), String::from(""));
-                                    }
-                                };
+                                self.map.insert(
+                                    field_name.clone(),
+                                    find_single(element, identifier, *n as usize),
+                                );
                             }
                             ElementSelection::All(delimiter) => {
-                                let mut value = String::new();
-                                for selected_element in selection {
-                                    value += &(extract(
-                                        &selected_element,
-                                        &identifier.destination_location,
-                                    ) + &delimiter.clone());
-                                }
-                                self.map.insert(field_name.clone(), value);
+                                self.map.insert(
+                                    field_name.clone(),
+                                    concatenate_all(element, identifier, delimiter),
+                                );
                             }
                         }
                     }
                 }
-                PathStep::Find(field_identifier) => self.find(element, field_identifier),
+
+                PathStep::Find(field_identifier) => match &field_identifier.destination.1 {
+                    ElementSelection::Single(n) => {
+                        self.values
+                            .push(find_single(element, field_identifier, *n as usize));
+                    }
+                    ElementSelection::All(_) => {
+                        self.values.extend(find_all(element, field_identifier));
+                    }
+                },
                 _ => panic!("Invalid path!"),
             },
             None => (),
         };
+
         self.resolve_path(element, level + 1);
-    }
-
-    fn find(&mut self, element: &ElementRef, identifier: &FieldIdentity) {
-        let selector = Selector::parse(&identifier.destination.0).unwrap();
-        let mut selection = element.select(&selector);
-
-        match &identifier.destination.1 {
-            ElementSelection::Single(n) => {
-                let child_element = selection.nth(*n as usize).expect("Element not found");
-                self.values
-                    .push(extract(&child_element, &identifier.destination_location));
-            }
-            ElementSelection::All(_) => {
-                for child_element in selection {
-                    self.values
-                        .push(extract(&child_element, &identifier.destination_location));
-                }
-            }
-        }
     }
 }
 
@@ -176,9 +157,21 @@ impl<'a> PathBuilder {
         return self;
     }
 
-    pub fn populate_one(&mut self, field_name: &'a str, selector: &'a str, selection: ElementSelection, location: DestinationLocation) -> &mut Self {
+    pub fn populate_one(
+        &mut self,
+        field_name: &'a str,
+        selector: &'a str,
+        selection: ElementSelection,
+        location: DestinationLocation,
+    ) -> &mut Self {
         let mut population = HashMap::new();
-        population.insert(String::from(field_name), FieldIdentity{destination: Destination::new(selector, selection), destination_location: location});
+        population.insert(
+            String::from(field_name),
+            FieldIdentity {
+                destination: Destination::new(selector, selection),
+                destination_location: location,
+            },
+        );
         self.path.push(PathStep::Populate(population));
         return self;
     }
@@ -405,7 +398,12 @@ mod tests {
                 r#"div[class="first"]"#,
                 ElementSelection::first(),
             ))
-            .populate_one("first", r#"span[itemprop="first"]"#, ElementSelection::first(), DestinationLocation::Text)
+            .populate_one(
+                "first",
+                r#"span[itemprop="first"]"#,
+                ElementSelection::first(),
+                DestinationLocation::Text,
+            )
             .build();
         let mut path_finder = PathFinder::new(&path, html.borrow());
 

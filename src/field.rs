@@ -16,7 +16,6 @@ pub struct FieldIdentity {
 pub struct Destination(pub String, pub ElementSelection);
 
 impl<'a> Destination {
-
     pub fn new(selector: &'a str, selection: ElementSelection) -> Destination {
         Destination(String::from(selector), selection)
     }
@@ -33,7 +32,6 @@ pub enum ElementSelection {
 }
 
 impl ElementSelection {
-
     pub fn first() -> ElementSelection {
         ElementSelection::Single(0)
     }
@@ -72,22 +70,63 @@ impl<'a, 'b> FieldPopulator<'a, 'b> {
         let parsed = Selector::parse(&self.identifier.destination.0).unwrap();
         match &self.identifier.destination.1 {
             ElementSelection::Single(n) => {
-                let selected = self
-                    .html
-                    .select(&parsed)
-                    .nth(*n as usize)
-                    .expect("Element not found");
-                self.value = Some(extract(&selected, &self.identifier.destination_location));
-            },
+                self.value = Some(find_single(
+                    &self.html.root_element(),
+                    self.identifier,
+                    *n as usize,
+                ));
+            }
             ElementSelection::All(delimiter) => {
-                let mut selected = self.html.select(&parsed);
-                let mut value = extract(&selected.next().expect("Element not found"), &self.identifier.destination_location);
-                for element in selected.skip(0) {
-                    value += &(delimiter.clone() + &extract(&element, &self.identifier.destination_location));
-                }
-                self.value = Some(value);
+                self.value = Some(concatenate_all(
+                    &self.html.root_element(),
+                    self.identifier,
+                    delimiter,
+                ));
             }
         }
+    }
+}
+
+pub fn concatenate_all(
+    element: &ElementRef,
+    identifier: &FieldIdentity,
+    delimiter: &str,
+) -> String {
+    let selector = Selector::parse(&identifier.destination.0).unwrap();
+    let mut selection = element.select(&selector);
+
+    let mut value = String::new();
+    for selected_element in selection {
+        value +=
+            &(extract(&selected_element, &identifier.destination_location) + &delimiter.clone());
+    }
+
+    String::from(value.trim())
+}
+
+pub fn find_all(element: &ElementRef, identifier: &FieldIdentity) -> Vec<String> {
+    let selector = Selector::parse(&identifier.destination.0).unwrap();
+    let mut selection = element.select(&selector);
+    let mut values = Vec::new();
+
+    for child_element in selection {
+        values.push(extract(&child_element, &identifier.destination_location));
+    }
+
+    values
+}
+
+pub fn find_single(
+    element: &ElementRef,
+    identifier: &FieldIdentity,
+    selection_number: usize,
+) -> String {
+    let selector = Selector::parse(&identifier.destination.0).unwrap();
+    let mut selection = element.select(&selector);
+
+    match selection.nth(selection_number) {
+        Some(e) => extract(&e, &identifier.destination_location),
+        None => String::from(""),
     }
 }
 
@@ -101,7 +140,9 @@ pub fn extract(element: &ElementRef, location: &DestinationLocation) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ FieldPopulator, FieldIdentity, Destination, DestinationLocation, ElementSelection};
+    use super::{
+        Destination, DestinationLocation, ElementSelection, FieldIdentity, FieldPopulator,
+    };
     use scraper::Html;
     use std::cell::RefCell;
 
@@ -110,7 +151,10 @@ mod tests {
         let html_string = r#"<div>find me</div>"#;
         let html = Html::parse_fragment(&html_string);
         let html = RefCell::new(&html);
-        let identity = FieldIdentity{destination: Destination::new("div", ElementSelection::first()), destination_location: DestinationLocation::Text};
+        let identity = FieldIdentity {
+            destination: Destination::new("div", ElementSelection::first()),
+            destination_location: DestinationLocation::Text,
+        };
         let mut field_populator = FieldPopulator::new(html.borrow(), &identity);
 
         field_populator.find_field();
@@ -123,7 +167,10 @@ mod tests {
         let html_string = r#"<div><p>find me<p></div>"#;
         let html = Html::parse_fragment(&html_string);
         let html = RefCell::new(&html);
-        let identity = FieldIdentity{destination: Destination::new("p", ElementSelection::first()), destination_location: DestinationLocation::Text};
+        let identity = FieldIdentity {
+            destination: Destination::new("p", ElementSelection::first()),
+            destination_location: DestinationLocation::Text,
+        };
         let mut field_populator = FieldPopulator::new(html.borrow(), &identity);
 
         field_populator.find_field();
@@ -136,7 +183,10 @@ mod tests {
         let html_string = r#"<div>find me</div> <div>as well</div>"#;
         let html = Html::parse_fragment(&html_string);
         let html = RefCell::new(&html);
-        let identity = FieldIdentity{destination: Destination::new("div", ElementSelection::All(String::from(" "))), destination_location: DestinationLocation::Text};
+        let identity = FieldIdentity {
+            destination: Destination::new("div", ElementSelection::All(String::from(" "))),
+            destination_location: DestinationLocation::Text,
+        };
         let mut field_populator = FieldPopulator::new(html.borrow(), &identity);
 
         field_populator.find_field();
@@ -149,7 +199,10 @@ mod tests {
         let html_string = r#"<p><div>find me</div> <div>as well</div></p>"#;
         let html = Html::parse_fragment(&html_string);
         let html = RefCell::new(&html);
-        let identity = FieldIdentity{destination: Destination::new("div", ElementSelection::All(String::from(" "))), destination_location: DestinationLocation::Text};
+        let identity = FieldIdentity {
+            destination: Destination::new("div", ElementSelection::All(String::from(" "))),
+            destination_location: DestinationLocation::Text,
+        };
         let mut field_populator = FieldPopulator::new(html.borrow(), &identity);
 
         field_populator.find_field();
@@ -158,14 +211,18 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Element not found")]
-    fn test_panic_on_invalid_element() {
+    fn test_empty_on_invalid_element() {
         let html_string = r#"<div>find me</div> <div>as well</div>"#;
         let html = Html::parse_fragment(&html_string);
         let html = RefCell::new(&html);
-        let identity = FieldIdentity{destination: Destination::new("a", ElementSelection::All(String::from(" "))), destination_location: DestinationLocation::Text};
+        let identity = FieldIdentity {
+            destination: Destination::new("a", ElementSelection::All(String::from(" "))),
+            destination_location: DestinationLocation::Text,
+        };
         let mut field_populator = FieldPopulator::new(html.borrow(), &identity);
 
         field_populator.find_field();
+
+        assert_eq!(field_populator.value.unwrap(), "");
     }
 }
