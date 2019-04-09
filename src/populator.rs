@@ -145,11 +145,12 @@ impl<'a> MultiplePopulator<'a> {
         let html = RefCell::new(&self.html);
         let mut path_finder = PathFinder::new(&self.links_path, html.borrow());
         path_finder.search_path();
-        let pool = ThreadPool::new(path_finder.values.len());
 
         if path_finder.values.len() == 0 {
             return Err(String::from("No link found"));
         }
+
+        let pool = ThreadPool::new(path_finder.values.len());
 
         for link in path_finder.values {
             let results = self.paralell_populated_links.clone();
@@ -161,6 +162,7 @@ impl<'a> MultiplePopulator<'a> {
                 },
                 None => link,
             };
+
             let search = self.search_detail.clone();
             pool.execute(move || {
                 let link_html = reqwest::get(&link)
@@ -175,6 +177,7 @@ impl<'a> MultiplePopulator<'a> {
 
         pool.join();
         self.populated_links = self.paralell_populated_links.lock().unwrap().clone();
+
         Ok(())
     }
 }
