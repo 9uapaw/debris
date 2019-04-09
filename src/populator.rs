@@ -8,21 +8,13 @@ use crate::field::FieldPopulator;
 use crate::path::PathFinder;
 use crate::path::PathStep;
 use reqwest;
-use scraper::element_ref;
-use scraper::html;
-use scraper::ElementRef;
-use scraper::{Html, Selector};
-use std::cell::Ref;
+use scraper::Html;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fmt;
 use std::prelude::v1::Vec;
-use std::str::FromStr;
 use std::string::ToString;
 use std::sync::Arc;
-use std::sync::Barrier;
 use std::sync::Mutex;
-use std::sync::RwLock;
 use threadpool::ThreadPool;
 
 pub type Fields<'a> = HashMap<&'a str, FieldIdentity>;
@@ -55,8 +47,6 @@ impl<'a> SinglePopulator<'a> {
     }
 
     pub fn populate(&mut self) {
-        let mut populated_fields: HashMap<String, String> = HashMap::new();
-        let mut values = Vec::<String>::new();
         let html = RefCell::new(&self.html);
 
         for (field_name, field) in &self.search_detail.fields {
@@ -116,14 +106,13 @@ impl<'a> MultiplePopulator<'a> {
     }
 
     /// Start single threaded population based on the link path.
-    pub fn populate(&mut self) {
+    pub fn populate(&mut self) -> Result<(), String> {
         let html = RefCell::new(&self.html);
 
         let mut path_finder = PathFinder::new(&self.links_path, html.borrow());
         path_finder.search_path();
 
         for link in path_finder.values {
-
             let link = match self.link_callback {
                 Some(callback) => match (callback)(link.clone()) {
                     Some(link) => link,
@@ -132,23 +121,35 @@ impl<'a> MultiplePopulator<'a> {
                 None => link,
             };
 
-            let link_html = reqwest::get(&link)
-                .expect("Link not found")
-                .text()
-                .expect("Unable to extract html from link");
+            let link_html = match reqwest::get(&link) {
+                Ok(mut response) => match response.text() {
+                    Ok(html) => html,
+                    Err(_) => {
+                        return Err(String::from("Unable to extract html from link"));
+                    }
+                },
+                Err(_) => {
+                    return Err(String::from("Link not found"));
+                }
+            };
 
             let mut populator = SinglePopulator::new(&link_html, self.search_detail.clone());
             populator.populate();
             self.populated_links.push(populator.map);
         }
+        return Ok(());
     }
 
     /// Start multithreaded population based on the link path.
-    pub fn par_populate(&mut self) {
+    pub fn par_populate(&mut self) -> Result<(), String> {
         let html = RefCell::new(&self.html);
         let mut path_finder = PathFinder::new(&self.links_path, html.borrow());
         path_finder.search_path();
         let pool = ThreadPool::new(path_finder.values.len());
+
+        if path_finder.values.len() == 0 {
+            return Err(String::from("No link found"));
+        }
 
         for link in path_finder.values {
             let results = self.paralell_populated_links.clone();
@@ -174,6 +175,7 @@ impl<'a> MultiplePopulator<'a> {
 
         pool.join();
         self.populated_links = self.paralell_populated_links.lock().unwrap().clone();
+        Ok(())
     }
 }
 

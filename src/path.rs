@@ -1,5 +1,4 @@
 use crate::field::concatenate_all;
-use crate::field::extract;
 use crate::field::find_all;
 use crate::field::find_single;
 use crate::field::Destination;
@@ -61,7 +60,7 @@ impl<'a, 'b> PathFinder<'a, 'b> {
             _ => panic!("Can not descend on all element"),
         };
         let parsed = Selector::parse(&start.0).unwrap();
-        let mut selected = match self.html.select(&parsed).nth(n as usize) {
+        let selected = match self.html.select(&parsed).nth(n as usize) {
             Some(s) => s,
             None => return,
         };

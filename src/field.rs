@@ -2,7 +2,6 @@ use scraper::ElementRef;
 use scraper::Html;
 use scraper::Selector;
 use std::cell::Ref;
-use std::collections::HashMap;
 
 #[derive(Clone)]
 /// Contains information about the HTML element to be extracted in the process.
@@ -67,7 +66,6 @@ impl<'a, 'b> FieldPopulator<'a, 'b> {
     }
 
     pub fn find_field(&mut self) {
-        let parsed = Selector::parse(&self.identifier.destination.0).unwrap();
         match &self.identifier.destination.1 {
             ElementSelection::Single(n) => {
                 self.value = Some(find_single(
@@ -93,7 +91,7 @@ pub fn concatenate_all(
     delimiter: &str,
 ) -> String {
     let selector = Selector::parse(&identifier.destination.0).unwrap();
-    let mut selection = element.select(&selector);
+    let selection = element.select(&selector);
 
     let mut value = String::new();
     for selected_element in selection {
@@ -106,7 +104,7 @@ pub fn concatenate_all(
 
 pub fn find_all(element: &ElementRef, identifier: &FieldIdentity) -> Vec<String> {
     let selector = Selector::parse(&identifier.destination.0).unwrap();
-    let mut selection = element.select(&selector);
+    let selection = element.select(&selector);
     let mut values = Vec::new();
 
     for child_element in selection {

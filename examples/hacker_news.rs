@@ -1,5 +1,5 @@
 //! Example of reading the first comment of every entry on Hacker News
-//! 
+//!
 extern crate debris;
 use debris::declare::Destination;
 use debris::declare::DestinationLocation;
@@ -8,8 +8,6 @@ use debris::declare::FieldIdentity;
 use debris::declare::PathBuilder;
 use debris::declare::SearchDetail;
 use debris::population::MultiplePopulator;
-use debris::population::SinglePopulator;
-use scraper::Html;
 use std::collections::HashMap;
 
 fn main() {
@@ -63,7 +61,7 @@ fn main() {
         Some(&link_converter),
         search,
     );
-    populator.populate();
+    populator.populate().expect("Link extracting failed");
 
     for maps in populator.populated_links {
         for (k, v) in maps {
