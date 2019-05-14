@@ -21,10 +21,23 @@ pub type Fields<'a> = HashMap<&'a str, FieldIdentity>;
 pub type Path = Vec<PathStep>;
 pub type Paths = Vec<Path>;
 
+pub enum Paging {
+    Disabled,
+    Enabled(PagingOptions),
+}
+
+pub struct PagingOptions {
+    pub extension: String,
+    pub range: PagingRange,
+}
+
+pub enum PagingRange {
+    Indefinite,
+    Page(i32),
+}
 /// HTML extractor on a single HTML structure
 pub struct SinglePopulator<'a> {
-    /// Parsed Html struct
-    html: Html,
+    url: String,
     search_detail: SearchDetail<'a>,
     /// A map, that contains populated field_names
     pub map: HashMap<String, String>,
@@ -33,13 +46,11 @@ pub struct SinglePopulator<'a> {
 }
 
 impl<'a> SinglePopulator<'a> {
-    pub fn new(html_string: &'a str, search: SearchDetail<'a>) -> SinglePopulator<'a> {
-        //        let mut html_string = reqwest::get(url).unwrap();
+    pub fn new(url:&'a str, search: SearchDetail<'a>) -> SinglePopulator<'a> {
         let map = HashMap::new();
         let values = Vec::new();
-        let html = Html::parse_fragment(html_string);
         SinglePopulator {
-            html,
+            url: String::from(url),
             search_detail: search,
             map,
             values,
@@ -47,7 +58,8 @@ impl<'a> SinglePopulator<'a> {
     }
 
     pub fn populate(&mut self) {
-        let html = RefCell::new(&self.html);
+        let html = get_html(&self.url);
+        let html = RefCell::new(&html);
 
         for (field_name, field) in &self.search_detail.fields {
             let mut populator = FieldPopulator::new(html.borrow(), &field);
@@ -72,78 +84,143 @@ impl<'a> SinglePopulator<'a> {
 type ThreadSafeLinks = Arc<Mutex<Vec<HashMap<String, String>>>>;
 
 /// The populator usable on multiple identical HTML structure (link crawling).
-pub struct MultiplePopulator<'a> {
-    html: Html,
+pub struct MultiplePopulator {
+    url: String,
     /// Multiple populated map
     pub populated_links: Vec<HashMap<String, String>>,
-    paralell_populated_links: ThreadSafeLinks,
     links_path: Path,
     /// A simple converter function that takes the link as an argument. Use it when the HTML structure
     /// only contains a relative path instead of an absolute url.
-    link_callback: Option<&'a Fn(String) -> Option<String>>,
+    link_prefix: Option<String>,
     search_detail: SearchDetail<'static>,
+    paging: Paging,
+    multi_thread: bool,
 }
 
-impl<'a> MultiplePopulator<'a> {
+impl<'a> MultiplePopulator {
     pub fn new(
         url: &str,
         links_path: Path,
-        link_converter: Option<&'a Fn(String) -> Option<String>>,
+        link_converter: Option<String>,
         search: SearchDetail<'static>,
-    ) -> MultiplePopulator<'a> {
+        multi_thread: bool,
+    ) -> MultiplePopulator {
+        let populated_links = Vec::<HashMap<String, String>>::new();
+        MultiplePopulator {
+            url: String::from(url),
+            populated_links,
+            links_path,
+            link_prefix: link_converter,
+            search_detail: search,
+            paging: Paging::Disabled,
+            multi_thread,
+        }
+    }
+
+    pub fn new_with_paging(
+        url: &str,
+        links_path: Path,
+        link_converter: Option<String>,
+        search: SearchDetail<'static>,
+        multi_thread: bool,
+        paging_option: PagingOptions,
+    ) -> MultiplePopulator {
         let mut html_string = reqwest::get(url).expect("Can't connect to url!");
         let html = Html::parse_fragment(&html_string.text().unwrap_or("".to_string()));
         let populated_links = Vec::<HashMap<String, String>>::new();
-        let paralell_populated_links = Arc::new(Mutex::new(Vec::new()));
         MultiplePopulator {
-            html,
+            url: String::from(url),
             populated_links,
-            paralell_populated_links,
             links_path,
-            link_callback: link_converter,
+            link_prefix: link_converter,
             search_detail: search,
+            paging: Paging::Enabled(paging_option),
+            multi_thread,
+        }
+    }
+
+    pub fn run(&mut self) -> Result<&Vec<HashMap<String, String>>, String> {
+        match &self.paging {
+            Paging::Enabled(options) => match options.range {
+                PagingRange::Indefinite => {
+                    let mut page = 0;
+                    loop {
+                        let link = format!("{}{}", self.url, options.extension)
+                            .replace("{}", &page.to_string());
+                        let html = get_html(&link);
+                        let mut result = self.populate(html)?;
+                        if result.len() == 0 {
+                            break;
+                        }
+                        self.populated_links.append(&mut result);
+                        page += 1;
+                    }
+                }
+                PagingRange::Page(n) => {
+                    for i in 0..n {
+                        let link = format!("{}{}", self.url, options.extension)
+                            .replace("{}", (&i.to_string()));
+                        let html = get_html(&link);
+                        let mut result = self.populate(html)?;
+                        self.populated_links.append(&mut result);
+                    }
+                }
+            },
+            Paging::Disabled => {
+                let html = get_html(&self.url);
+                let mut result = self.populate(html)?;
+                self.populated_links.append(&mut result);
+            }
+        }
+        Ok(&self.populated_links)
+    }
+
+    fn populate(&self, html: Html) -> Result<Vec<HashMap<String, String>>, String> {
+        match self.multi_thread {
+            true => self.par_populate(html),
+            false => self.single_populate(html),
         }
     }
 
     /// Start single threaded population based on the link path.
-    pub fn populate(&mut self) -> Result<(), String> {
-        let html = RefCell::new(&self.html);
+    fn single_populate(&self, html: Html) -> Result<Vec<HashMap<String, String>>, String> {
+        let html = RefCell::new(&html);
 
+        let mut populated_links: Vec<HashMap<String, String>> = Vec::new();
         let mut path_finder = PathFinder::new(&self.links_path, html.borrow());
         path_finder.search_path();
 
         for link in path_finder.values {
-            let link = match self.link_callback {
-                Some(callback) => match (callback)(link.clone()) {
-                    Some(link) => link,
-                    None => continue,
-                },
+            let link = match &self.link_prefix {
+                Some(prefix) => prefix.clone() + &link,
                 None => link,
             };
 
-            let link_html = match reqwest::get(&link) {
-                Ok(mut response) => match response.text() {
-                    Ok(html) => html,
-                    Err(_) => {
-                        return Err(String::from("Unable to extract html from link"));
-                    }
-                },
-                Err(_) => {
-                    return Err(String::from("Link not found"));
-                }
-            };
+//            let link_html = match reqwest::get(&link) {
+//                Ok(mut response) => match response.text() {
+//                    Ok(html) => html,
+//                    Err(_) => {
+//                        return Err(String::from("Unable to extract html from link"));
+//                    }
+//                },
+//                Err(_) => {
+//                    return Err(String::from("Link not found"));
+//                }
+//            };
 
-            let mut populator = SinglePopulator::new(&link_html, self.search_detail.clone());
+            let mut populator = SinglePopulator::new(&link, self.search_detail.clone());
             populator.populate();
-            self.populated_links.push(populator.map);
+            populated_links.push(populator.map);
         }
-        return Ok(());
+        Ok(populated_links)
     }
 
     /// Start multithreaded population based on the link path.
-    pub fn par_populate(&mut self) -> Result<(), String> {
-        let html = RefCell::new(&self.html);
+    fn par_populate(&self, html: Html) -> Result<Vec<HashMap<String, String>>, String> {
+        let html = RefCell::new(&html);
         let mut path_finder = PathFinder::new(&self.links_path, html.borrow());
+        let all_results: Vec<HashMap<String, String>> = Vec::new();
+        let paralell_populated_links = Arc::new(Mutex::new(all_results));
         path_finder.search_path();
 
         if path_finder.values.len() == 0 {
@@ -153,33 +230,31 @@ impl<'a> MultiplePopulator<'a> {
         let pool = ThreadPool::new(path_finder.values.len());
 
         for link in path_finder.values {
-            let results = self.paralell_populated_links.clone();
+            let results = paralell_populated_links.clone();
 
-            let link = match self.link_callback {
-                Some(callback) => match (callback)(link.clone()) {
-                    Some(link) => link,
-                    None => continue,
-                },
+            let link = match &self.link_prefix {
+                Some(prefix) => prefix.clone() + &link,
                 None => link,
             };
 
             let search = self.search_detail.clone();
             pool.execute(move || {
-                let link_html = reqwest::get(&link)
-                    .expect("Link not found")
-                    .text()
-                    .expect("Unable to extract html from link");
-                let mut populator = SinglePopulator::new(&link_html, search);
+                let mut populator = SinglePopulator::new(&link, search);
                 populator.populate();
                 results.lock().unwrap().push(populator.map);
             });
         }
 
         pool.join();
-        self.populated_links = self.paralell_populated_links.lock().unwrap().clone();
-
-        Ok(())
+        let result = paralell_populated_links.lock().unwrap().clone();
+        Ok(result)
     }
+
+}
+
+fn get_html(url: &str) -> Html {
+    let mut html_string = reqwest::get(url).expect("URL not found");
+    Html::parse_fragment(&html_string.text().unwrap_or("".to_string()))
 }
 
 #[derive(Clone)]

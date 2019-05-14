@@ -11,7 +11,7 @@ use scraper::Selector;
 use std::cell::Ref;
 use std::collections::HashMap;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// Building blocks of a path.
 pub enum PathStep {
     /// Lower the hierarchy level by 1.
@@ -59,7 +59,7 @@ impl<'a, 'b> PathFinder<'a, 'b> {
             ElementSelection::Single(n) => n,
             _ => panic!("Can not descend on all element"),
         };
-        let parsed = Selector::parse(&start.0).unwrap();
+        let parsed = Selector::parse(r#"ul[id="results"]"#).unwrap();
         let selected = match self.html.select(&parsed).nth(n as usize) {
             Some(s) => s,
             None => return,
@@ -194,13 +194,12 @@ impl<'a> PathBuilder {
     pub fn find_all(
         &mut self,
         selector: &'a str,
-        delimiter: &'a str,
         location: DestinationLocation,
     ) -> &mut Self {
         self.path.push(PathStep::Find(FieldIdentity {
             destination: Destination(
                 String::from(selector),
-                ElementSelection::All(String::from(delimiter)),
+                ElementSelection::All(String::from("")),
             ),
             destination_location: location,
         }));

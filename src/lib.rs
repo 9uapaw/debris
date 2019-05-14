@@ -12,6 +12,7 @@
 mod path;
 mod field;
 mod populator;
+mod parser;
 
 pub mod declare {
     pub use crate::path::PathBuilder;
@@ -29,5 +30,12 @@ pub mod declare {
 pub mod population {
     pub use crate::populator::SinglePopulator;
     pub use crate::populator::MultiplePopulator;
+}
+
+pub mod parse {
+    pub use crate::parser::Parser;
+    pub use crate::parser::Config;
+    pub use crate::parser::Meta;
+    pub use crate::parser::Populator;
 }
 

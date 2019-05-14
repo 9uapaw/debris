@@ -3,14 +3,14 @@ use scraper::Html;
 use scraper::Selector;
 use std::cell::Ref;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// Contains information about the HTML element to be extracted in the process.
 pub struct FieldIdentity {
     pub destination: Destination,
     pub destination_location: DestinationLocation,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// A simple tuple, with a selector string and a selection number.
 pub struct Destination(pub String, pub ElementSelection);
 
@@ -20,7 +20,7 @@ impl<'a> Destination {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// Provides a way to select an exact HTML element, or all the elements.
 pub enum ElementSelection {
     /// Select the nth element.
@@ -36,7 +36,7 @@ impl ElementSelection {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// Selects what to extract from the HTML element.
 pub enum DestinationLocation {
     /// Extract the element's attribute. (eg. to extract date from `<div itemprop=date></div>`, the
