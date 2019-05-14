@@ -46,22 +46,15 @@ fn main() {
         .populate(comment_fields)
         .build();
 
-    let link_converter = |link: String| -> Option<String> {
-        if link.starts_with("item") {
-            Some(String::from("https://news.ycombinator.com/") + &link)
-        } else {
-            None
-        }
-    };
-
     search.insert_path(comment_path);
     let mut populator = MultiplePopulator::new(
         "https://news.ycombinator.com/",
         link_path,
-        Some(&link_converter),
+        Some(String::from("https://news.ycombinator.com/")),
         search,
+        false,
     );
-    populator.populate().expect("Link extracting failed");
+    populator.run().expect("Link extracting failed");
 
     for maps in populator.populated_links {
         for (k, v) in maps {
